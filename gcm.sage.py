@@ -27,8 +27,6 @@ def strToPoly(s, x):
     return res
 
 # Converts a polynomial in GF(2^128) into a 128 bitstring
-
-
 def polyToStr(p):
     coefs = p.polynomial().coefficients(sparse=False)
     coefs.reverse()
@@ -45,15 +43,11 @@ def polyToStr(p):
 
 # Multiply the 128bit string by the polynomial H.
 # Returns a 128bit-string
-
-
 def multByH(b, H, x):
     p = strToPoly(b, x)
     return polyToStr(p*H)
 
 # Increases by 1 ctr which is a bitstring counter.
-
-
 def increaseCounter(ctr):
     i = len(ctr) - _sage_const_1 
     while ctr[i] == _sage_const_255 :
@@ -127,21 +121,82 @@ def GCM_Decrypt(key, IV, c):
 
     return CTR(key, IV, ciphertext)
 
-    pass
 
+def attack():
+    pass
 
 def main():
     # Source for message: https://veganipsum.me/
-    message = b"Thai almond milk green pepper Italian linguine puttanesca shaved almonds double dark chocolate blacberies plums salted green tea lime tasty Thai dragon pepper macadamia nut cookies smoky maple tempeh glaze avocado summer chocolate cookie apples peppermint."
-    key     = b"Thirty two byte key for AES 256!"
-    IV      = b"some very IV"
+    # message = b"Thai almond milk green pepper Italian linguine puttanesca shaved almonds double dark chocolate blacberies plums salted green tea lime tasty Thai dragon pepper macadamia nut cookies smoky maple tempeh glaze avocado summer chocolate cookie apples peppermint."
+    # key     = b"Thirty two byte key for AES 256!"
+    # IV      = b"some very IV"
 
-    encrypted_message = GCM_Encrypt(key, IV, message)
+    # encrypted_message = GCM_Encrypt(key, IV, message)
+    # decrypted_message = GCM_Decrypt(key, IV, encrypted_message)
 
-    decrypted_message = GCM_Decrypt(key, IV, encrypted_message)
+    # print(message == decrypted_message)
 
-    print(message == decrypted_message)
+    m  = b"Thai almond milk green pepper !!"
+    k1 = b"Thirty two byte key for AES 256!"
+    k2 = b"Fourty foo kyte cey for DES 625!"
+    N  = b"\xAB"*_sage_const_12 
+    
+    (ct, tag) = GCM_Encrypt(k1, N, m)
 
+    blocks = [ct[i:i+_sage_const_16 ] for i in range(_sage_const_0 , len(ct), _sage_const_16 )]
+    blocks.reverse()
+
+    G = PolynomialRing(GF(_sage_const_2 ), names=('y',)); (y,) = G._first_ngens(1)# Ring of polynomials over Z_2
+    F = GF(_sage_const_2 **_sage_const_128 , modulus = y**_sage_const_128  + y**_sage_const_7  + y**_sage_const_2  + y + _sage_const_1 , names=('x',)); (x,) = F._first_ngens(1)#GF(2^128) with the GCM modulus
+
+    cipher = AES.new(k1, AES.MODE_ECB)
+    H1 = strToPoly(cipher.encrypt(b"\x00"*_sage_const_16 ), x)
+    A1 = cipher.encrypt((N + b"\x00"*_sage_const_3 +b"\x01"))
+
+    cipher = AES.new(k2, AES.MODE_ECB)
+    H2 = strToPoly(cipher.encrypt(b"\x00"*_sage_const_16 ), x)
+    A2 = cipher.encrypt((N + b"\x00"*_sage_const_3 +b"\x01"))
+
+    ct_len = strToPoly(b"\x00"*_sage_const_8  + (int(len(ct) + _sage_const_16 )).to_bytes(_sage_const_8 , "little"), x)
+    
+    power = _sage_const_3 
+    encrypted_free_block = strToPoly(A2, x) + strToPoly(A1, x) + ct_len * (H2 + H1)
+
+    for block in blocks:
+        encrypted_free_block = encrypted_free_block + strToPoly(block, x) * (H2**power + H1**power)
+        power = power + _sage_const_1 
+
+    encrypted_free_block = polyToStr(encrypted_free_block / (H1**_sage_const_2  + H2**_sage_const_2 ))
+    free_block = CTR(k1, N, encrypted_free_block)
+
+    new_tag = strToPoly(A1, x) + ct_len * H1 + strToPoly(encrypted_free_block, x) * H1**_sage_const_2 
+    power = _sage_const_3 
+    for block in blocks:
+        new_tag = new_tag + strToPoly(block, x) * H1**power
+        power = power + _sage_const_1 
+
+    new_tag = polyToStr(new_tag)
+
+    ciphertext = b"".join([ct, encrypted_free_block])
+    # print(ciphertext)
+    # print(ct)
+    decrypted_message = GCM_Decrypt(k2, N, (ciphertext, new_tag))
+    print(decrypted_message)
+    encrypted_message = GCM_Encrypt(k2, N, decrypted_message)
+    decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
+
+    print(decrypted_message)
+    # ct, tag = Enc(m||stuff)
+    # print(b"".join([m, free_block]))
+
+    # encrypted_message = GCM_Encrypt(k1, N, b"".join([m, free_block]))
+    # decrypted_message = GCM_Decrypt(k2, N, encrypted_message)
+
+    # m1 = m||bla
+    # m2 = someth
+    # Enc(m1, N, k1) = Enc(m2, N, k2) = (c, tag)
+    # Dec(c, N, k1) = m1
+    # Dec(c, N, k2) = m2
 
 if __name__ == '__main__':
     main()
