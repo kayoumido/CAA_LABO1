@@ -122,8 +122,74 @@ def GCM_Decrypt(key, IV, c):
     return CTR(key, IV, ciphertext)
 
 
-def attack():
-    pass
+def attack(m, IV, key1, key2, block_size=_sage_const_16 ):
+    # preparing all the elements we need to perform the attack
+
+    G = PolynomialRing(GF(_sage_const_2 ), names=('y',)); (y,) = G._first_ngens(1)# Ring of polynomials over Z_2
+    F = GF(_sage_const_2 **_sage_const_128 , modulus = y**_sage_const_128  + y**_sage_const_7  + y**_sage_const_2  + y + _sage_const_1 , names=('x',)); (x,) = F._first_ngens(1)# GF(2^128) with the GCM modulus
+
+    # create the encryption box
+    cipher1 = AES.new(key1, AES.MODE_ECB)
+    cipher2 = AES.new(key2, AES.MODE_ECB)
+
+    # calculate the multiplication constant
+    H1 = strToPoly(cipher1.encrypt(b"\x00"*_sage_const_16 ), x)
+    H2 = strToPoly(cipher2.encrypt(b"\x00"*_sage_const_16 ), x)
+
+    # calculate the final value used for the final xor (i.e. Enc(IV||0..1))
+    A1 = cipher1.encrypt((IV + b"\x00"*_sage_const_3 +b"\x01"))
+    A2 = cipher2.encrypt((IV + b"\x00"*_sage_const_3 +b"\x01"))
+
+    # print(A1)
+    # print(A2)
+
+    # since the given message will be part of m1, cipher it using key1
+    # note: Thinking about it, we could use any key since 
+    #       it's the same cipher for both messages. But it makes more sence 
+    #       to use key1...so bite me...
+    (ct, _) = GCM_Encrypt(key1, IV, m)
+    # split the obtained cipher into `block_size`
+    blocks = [ct[i:i+block_size] for i in range(_sage_const_0 , len(ct), block_size)]
+
+    # we need to reverse the list because in the complicated math formula,
+    # the closer a block is towards the end, the lower the exponent is
+    #
+    # e.g. [b1, b2]
+    # .... b2**3 +...+ b1**4
+    blocks.reverse()
+
+    # calculate the length of the final ciphertext
+    # note: b"\x00"*8 corresponds to the AD. 
+    #       since in this implementation there aren't any, 
+    #       we simply but 0s
+    ct_len = strToPoly(b"\x00"*_sage_const_8  + (int(len(ct) + block_size)).to_bytes(_sage_const_8 , "little"), x)
+
+    # time for some fun..
+
+    power = _sage_const_3 
+    # calculate the value that the free block needs to take 
+    # so that two different message have the same cipher AND tag
+    encrypted_free_block = strToPoly(A2, x) + strToPoly(A1, x) + ct_len * (H2 + H1)
+    for block in blocks:
+        encrypted_free_block = encrypted_free_block + strToPoly(block, x) * (H2**power + H1**power)
+        power = power + _sage_const_1 
+
+    encrypted_free_block = encrypted_free_block / (H1**_sage_const_2  + H2**_sage_const_2 )
+    
+    # build the common ciphertext
+    ciphertext = b"".join([ct, polyToStr(encrypted_free_block)])
+
+    # decrypt using key1 to find m1
+    m1 = CTR(key1, IV, ciphertext)
+
+    # encrypt m1 to find the tag that goes with the ciphertext
+    (_, tag) = GCM_Encrypt(key1, IV, m1)
+
+    # decrypt using key2 to find m2
+    m2 = GCM_Decrypt(key2, IV, (ciphertext, tag))
+
+    # return m1 & m2
+    return (m1, m2)
 
 def main():
     # Source for message: https://veganipsum.me/
@@ -141,62 +207,92 @@ def main():
     k2 = b"Fourty foo kyte cey for DES 625!"
     N  = b"\xAB"*_sage_const_12 
     
-    (ct, tag) = GCM_Encrypt(k1, N, m)
+    print("Original message: ", m)
+    print()
+    print("Searching for two messages with same ciphertext and tag under different keys...")
 
-    blocks = [ct[i:i+_sage_const_16 ] for i in range(_sage_const_0 , len(ct), _sage_const_16 )]
-    blocks.reverse()
+    m1, m2 = attack(m, N, k1, k2)
 
-    G = PolynomialRing(GF(_sage_const_2 ), names=('y',)); (y,) = G._first_ngens(1)# Ring of polynomials over Z_2
-    F = GF(_sage_const_2 **_sage_const_128 , modulus = y**_sage_const_128  + y**_sage_const_7  + y**_sage_const_2  + y + _sage_const_1 , names=('x',)); (x,) = F._first_ngens(1)#GF(2^128) with the GCM modulus
+    print()
 
-    cipher = AES.new(k1, AES.MODE_ECB)
-    H1 = strToPoly(cipher.encrypt(b"\x00"*_sage_const_16 ), x)
-    A1 = cipher.encrypt((N + b"\x00"*_sage_const_3 +b"\x01"))
+    print("Messages found!")
 
-    cipher = AES.new(k2, AES.MODE_ECB)
-    H2 = strToPoly(cipher.encrypt(b"\x00"*_sage_const_16 ), x)
-    A2 = cipher.encrypt((N + b"\x00"*_sage_const_3 +b"\x01"))
+    print("First message: ", m1)
+    print("Second message: ", m2)
 
-    ct_len = strToPoly(b"\x00"*_sage_const_8  + (int(len(ct) + _sage_const_16 )).to_bytes(_sage_const_8 , "little"), x)
+    print("\nCheck if ciphertext and tags are identical:\n")
+
+    first = GCM_Encrypt(k1, N, m1)
+    second = GCM_Encrypt(k2, N, m2)
+
+    print("GCM encryption for m1: \nCiphertext: {}\nTag: {}".format(first[_sage_const_0 ], first[_sage_const_1 ]))
+    print()
+    print("GCM encryption for m2: \nCiphertext: {}\nTag: {}".format(second[_sage_const_0 ], second[_sage_const_1 ]))
+    print()
+
+    print("Results identical ? ", first == second)
+    # (ct, tag) = GCM_Encrypt(k1, N, m)
+
+    # blocks = [ct[i:i+16] for i in range(0, len(ct), 16)]
+    # blocks.reverse()
+
+    # G.<y> = PolynomialRing(GF(2))  # Ring of polynomials over Z_2
+    # F.<x> = GF(2^128, modulus = y^128 + y^7 + y^2 + y + 1) #GF(2^128) with the GCM modulus
+
+    # cipher = AES.new(k1, AES.MODE_ECB)
+    # H1 = strToPoly(cipher.encrypt(b"\x00"*16), x)
+    # A1 = cipher.encrypt((N + b"\x00"*3+b"\x01"))
+
+    # cipher = AES.new(k2, AES.MODE_ECB)
+    # H2 = strToPoly(cipher.encrypt(b"\x00"*16), x)
+    # A2 = cipher.encrypt((N + b"\x00"*3+b"\x01"))
+
+    # ct_len = strToPoly(b"\x00"*8 + (int(len(ct) + 16)).to_bytes(8, "little"), x)
     
-    power = _sage_const_3 
-    encrypted_free_block = strToPoly(A2, x) + strToPoly(A1, x) + ct_len * (H2 + H1)
+    # power = 3
+    # encrypted_free_block = strToPoly(A2, x) + strToPoly(A1, x) + ct_len * (H2 + H1)
+    # for block in blocks:
+    #     encrypted_free_block = encrypted_free_block + strToPoly(block, x) * (H2**power + H1**power)
+    #     power = power + 1
 
-    for block in blocks:
-        encrypted_free_block = encrypted_free_block + strToPoly(block, x) * (H2**power + H1**power)
-        power = power + _sage_const_1 
+    # print((H1**2))
 
-    encrypted_free_block = polyToStr(encrypted_free_block / (H1**_sage_const_2  + H2**_sage_const_2 ))
-    free_block = CTR(k1, N, encrypted_free_block)
+    # encrypted_free_block = polyToStr(encrypted_free_block / (H1**2 + H2**2))
+    # # free_block = CTR(k1, N, encrypted_free_block)
 
-    new_tag = strToPoly(A1, x) + ct_len * H1 + strToPoly(encrypted_free_block, x) * H1**_sage_const_2 
-    power = _sage_const_3 
-    for block in blocks:
-        new_tag = new_tag + strToPoly(block, x) * H1**power
-        power = power + _sage_const_1 
+    # # new_tag = strToPoly(A1, x) + ct_len * H1 + strToPoly(encrypted_free_block, x) * H1**2
+    # # power = 3
+    # # for block in blocks:
+    # #     new_tag = new_tag + strToPoly(block, x) * H1**power
+    # #     power = power + 1
+    # # new_tag = polyToStr(new_tag)
 
-    new_tag = polyToStr(new_tag)
+    # ciphertext = b"".join([ct, encrypted_free_block])
+    # # print(ciphertext)
+    # # print(free_block)
+    # # decrypted_message = GCM_Decrypt(k2, N, (ciphertext, new_tag))
+    # # print(decrypted_message)
+    # # encrypted_message = GCM_Encrypt(k2, N, decrypted_message)
+    # # decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
 
-    ciphertext = b"".join([ct, encrypted_free_block])
-    # print(ciphertext)
-    # print(ct)
-    decrypted_message = GCM_Decrypt(k2, N, (ciphertext, new_tag))
-    print(decrypted_message)
-    encrypted_message = GCM_Encrypt(k2, N, decrypted_message)
-    decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
+    # # print(decrypted_message)
+    # # print()
+    # # ct, tag = Enc(m||stuff)
+    
+    # # love_message = CTR(k1, N, ciphertext)
 
-    print(decrypted_message)
-    # ct, tag = Enc(m||stuff)
-    # print(b"".join([m, free_block]))
+    # # encrypted_message = GCM_Encrypt(k1, N, love_message)
+    # # decrypted_message = GCM_Decrypt(k2, N, encrypted_message)
 
-    # encrypted_message = GCM_Encrypt(k1, N, b"".join([m, free_block]))
-    # decrypted_message = GCM_Decrypt(k2, N, encrypted_message)
+    # # print(decrypted_message)
+    # # decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
+    # # print(decrypted_message)
 
-    # m1 = m||bla
-    # m2 = someth
-    # Enc(m1, N, k1) = Enc(m2, N, k2) = (c, tag)
-    # Dec(c, N, k1) = m1
-    # Dec(c, N, k2) = m2
+    # # m1 = m||bla
+    # # m2 = someth
+    # # Enc(m1, N, k1) = Enc(m2, N, k2) = (c, tag)
+    # # Dec(c, N, k1) = m1
+    # # Dec(c, N, k2) = m2
 
 if __name__ == '__main__':
     main()
