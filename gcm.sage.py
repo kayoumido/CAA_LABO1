@@ -179,17 +179,8 @@ def attack(m, IV, key1, key2, block_size=_sage_const_16 ):
     # build the common ciphertext
     ciphertext = b"".join([ct, polyToStr(encrypted_free_block)])
 
-    # decrypt using key1 to find m1
-    m1 = CTR(key1, IV, ciphertext)
-
-    # encrypt m1 to find the tag that goes with the ciphertext
-    (_, tag) = GCM_Encrypt(key1, IV, m1)
-
-    # decrypt using key2 to find m2
-    m2 = GCM_Decrypt(key2, IV, (ciphertext, tag))
-
-    # return m1 & m2
-    return (m1, m2)
+    # decrypt using key1 & key2 to find m1 & m2
+    return (CTR(key1, IV, ciphertext), CTR(key2, IV, ciphertext))
 
 def main():
     # Source for message: https://veganipsum.me/
@@ -231,68 +222,7 @@ def main():
     print()
 
     print("Results identical ? ", first == second)
-    # (ct, tag) = GCM_Encrypt(k1, N, m)
 
-    # blocks = [ct[i:i+16] for i in range(0, len(ct), 16)]
-    # blocks.reverse()
-
-    # G.<y> = PolynomialRing(GF(2))  # Ring of polynomials over Z_2
-    # F.<x> = GF(2^128, modulus = y^128 + y^7 + y^2 + y + 1) #GF(2^128) with the GCM modulus
-
-    # cipher = AES.new(k1, AES.MODE_ECB)
-    # H1 = strToPoly(cipher.encrypt(b"\x00"*16), x)
-    # A1 = cipher.encrypt((N + b"\x00"*3+b"\x01"))
-
-    # cipher = AES.new(k2, AES.MODE_ECB)
-    # H2 = strToPoly(cipher.encrypt(b"\x00"*16), x)
-    # A2 = cipher.encrypt((N + b"\x00"*3+b"\x01"))
-
-    # ct_len = strToPoly(b"\x00"*8 + (int(len(ct) + 16)).to_bytes(8, "little"), x)
-    
-    # power = 3
-    # encrypted_free_block = strToPoly(A2, x) + strToPoly(A1, x) + ct_len * (H2 + H1)
-    # for block in blocks:
-    #     encrypted_free_block = encrypted_free_block + strToPoly(block, x) * (H2**power + H1**power)
-    #     power = power + 1
-
-    # print((H1**2))
-
-    # encrypted_free_block = polyToStr(encrypted_free_block / (H1**2 + H2**2))
-    # # free_block = CTR(k1, N, encrypted_free_block)
-
-    # # new_tag = strToPoly(A1, x) + ct_len * H1 + strToPoly(encrypted_free_block, x) * H1**2
-    # # power = 3
-    # # for block in blocks:
-    # #     new_tag = new_tag + strToPoly(block, x) * H1**power
-    # #     power = power + 1
-    # # new_tag = polyToStr(new_tag)
-
-    # ciphertext = b"".join([ct, encrypted_free_block])
-    # # print(ciphertext)
-    # # print(free_block)
-    # # decrypted_message = GCM_Decrypt(k2, N, (ciphertext, new_tag))
-    # # print(decrypted_message)
-    # # encrypted_message = GCM_Encrypt(k2, N, decrypted_message)
-    # # decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
-
-    # # print(decrypted_message)
-    # # print()
-    # # ct, tag = Enc(m||stuff)
-    
-    # # love_message = CTR(k1, N, ciphertext)
-
-    # # encrypted_message = GCM_Encrypt(k1, N, love_message)
-    # # decrypted_message = GCM_Decrypt(k2, N, encrypted_message)
-
-    # # print(decrypted_message)
-    # # decrypted_message = GCM_Decrypt(k1, N, encrypted_message)
-    # # print(decrypted_message)
-
-    # # m1 = m||bla
-    # # m2 = someth
-    # # Enc(m1, N, k1) = Enc(m2, N, k2) = (c, tag)
-    # # Dec(c, N, k1) = m1
-    # # Dec(c, N, k2) = m2
 
 if __name__ == '__main__':
     main()

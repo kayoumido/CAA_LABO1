@@ -173,17 +173,8 @@ def attack(m, IV, key1, key2, block_size=16):
     # build the common ciphertext
     ciphertext = b"".join([ct, polyToStr(encrypted_free_block)])
 
-    # decrypt using key1 to find m1
-    m1 = CTR(key1, IV, ciphertext)
-
-    # encrypt m1 to find the tag that goes with the ciphertext
-    (_, tag) = GCM_Encrypt(key1, IV, m1)
-
-    # decrypt using key2 to find m2
-    m2 = GCM_Decrypt(key2, IV, (ciphertext, tag))
-
-    # return m1 & m2
-    return (m1, m2)
+    # decrypt using key1 & key2 to find m1 & m2
+    return (CTR(key1, IV, ciphertext), CTR(key2, IV, ciphertext))
 
 def main():
     # Source for message: https://veganipsum.me/
